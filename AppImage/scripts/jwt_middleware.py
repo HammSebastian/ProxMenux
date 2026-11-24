@@ -11,6 +11,17 @@ from auth_manager import load_auth_config, verify_token, verify_token_full
 _READ_METHODS = ('GET', 'HEAD', 'OPTIONS')
 
 
+def _user_scope_may(method, path):
+    """OIDC `user` role: explicit allow-list of mutating routes (rbac.py).
+    Imported lazily so this module keeps working when loaded in isolation;
+    a missing rbac module means "deny"."""
+    try:
+        import rbac
+    except ImportError:
+        return False
+    return rbac.is_allowed(rbac.SCOPE_USER, method, path)
+
+
 def require_auth(f):
     """
     Decorator to protect Flask routes with JWT authentication
@@ -76,8 +87,11 @@ def require_auth(f):
             }), 401
 
         # read_only tokens may only read; any method that can change
-        # state needs full_admin.
-        if request.method not in _READ_METHODS and scope != 'full_admin':
+        # state needs full_admin, except for the explicit allow-list the
+        # OIDC `user` role may use (see rbac.py). Enforced server-side on
+        # every request.
+        if request.method not in _READ_METHODS and scope != 'full_admin' \
+                and not (scope == 'user' and _user_scope_may(request.method, request.path)):
             return jsonify({"error": "Insufficient scope",
                             "message": f"This action requires a full_admin token (your token: {scope})"}), 403
         
@@ -157,6 +171,34 @@ def require_admin_scope(f):
         if scope != 'full_admin':
             return jsonify({"error": "Insufficient scope",
                             "message": f"This action requires a full_admin token (your token: {scope})"}), 403
+        return f(*args, **kwargs)
+    return decorated_function
+
+
+def require_local_session(f):
+    """Like `require_auth` but rejects identity-provider (OIDC) sessions.
+
+    For endpoints that operate on the LOCAL ProxMenux account (password, 2FA,
+    local profile, disabling auth). An OIDC identity must never be able to
+    modify that account, even when its role is Administrator.
+    """
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        config = load_auth_config()
+        if not config.get("enabled", False) or config.get("declined", False):
+            return f(*args, **kwargs)
+        parts = (request.headers.get('Authorization') or '').split()
+        if len(parts) != 2 or parts[0].lower() != 'bearer':
+            return jsonify({"error": "Authentication required"}), 401
+        from auth_manager import get_session_info
+        info = get_session_info(parts[1])
+        if not info:
+            return jsonify({"error": "Invalid or expired token", "message": "Please log in again"}), 401
+        if info["src"] == "oidc":
+            return jsonify({"error": "Local account only",
+                            "message": "This action is only available to the local account"}), 403
+        if request.method not in _READ_METHODS and info["scope"] != 'full_admin':
+            return jsonify({"error": "Insufficient scope"}), 403
         return f(*args, **kwargs)
     return decorated_function
 

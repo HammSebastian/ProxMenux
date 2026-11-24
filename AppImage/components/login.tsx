@@ -28,6 +28,10 @@ export function Login({ onLogin }: LoginProps) {
   const [error, setError] = useState("")
   const [loading, setLoading] = useState(false)
   const lastAutoSubmittedTotp = useRef("")
+  // OpenID Connect (Authentik) state. `info` comes from the public status
+  // endpoint; when the provider is off the page behaves exactly as before.
+  const [oidc, setOidc] = useState<{ enabled: boolean; provider_name: string; local_login_allowed: boolean } | null>(null)
+  const oidcExchangeStarted = useRef(false)
 
   useEffect(() => {
     // The Login screen is, by construction, the recovery path from any
@@ -43,6 +47,53 @@ export function Login({ onLogin }: LoginProps) {
       sessionStorage.removeItem("proxmenux-auth-401-handled")
     } catch {
       // private browsing — best-effort
+    }
+
+    // Public login-page info (no secrets).
+    fetch(getApiUrl("/api/auth/oidc/info"))
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d && d.success) setOidc({ enabled: !!d.enabled, provider_name: d.provider_name, local_login_allowed: !!d.local_login_allowed })
+      })
+      .catch(() => {
+        // older backend without OIDC: plain local login
+      })
+
+    // Return from the identity provider: `?oidc_code=` (success) or `?oidc_error=`.
+    try {
+      const params = new URLSearchParams(window.location.search)
+      const code = params.get("oidc_code")
+      const oidcError = params.get("oidc_error")
+      if (code || oidcError) {
+        // Remove the one-time code from the address bar / history right away.
+        window.history.replaceState(null, "", window.location.pathname)
+      }
+      if (oidcError) {
+        const known = ["denied", "state", "token", "no_role", "disabled", "provisioning", "idp_error", "config", "disabled_oidc", "busy"]
+        setError(t(`idp.errors.${known.includes(oidcError) ? oidcError : "internal"}`))
+      }
+      if (code && !oidcExchangeStarted.current) {
+        oidcExchangeStarted.current = true
+        setLoading(true)
+        fetch(getApiUrl("/api/auth/oidc/exchange"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({ code }),
+        })
+          .then(async (r) => {
+            const data = await r.json().catch(() => ({}))
+            if (!r.ok || !data.token) throw new Error(t("idp.errors.state"))
+            localStorage.setItem("proxmenux-auth-token", data.token)
+            localStorage.removeItem("proxmenux-saved-username")
+            localStorage.removeItem("proxmenux-saved-password")
+            onLogin()
+          })
+          .catch((e) => setError(e instanceof Error ? e.message : t("idp.errors.internal")))
+          .finally(() => setLoading(false))
+      }
+    } catch {
+      // URL parsing unavailable — ignore, user can retry.
     }
 
     const savedUsername = localStorage.getItem("proxmenux-saved-username")
@@ -92,6 +143,10 @@ export function Login({ onLogin }: LoginProps) {
       }
 
       if (!response.ok) {
+        if (response.status === 403 && data.local_login_disabled) {
+          setOidc((o) => (o ? { ...o, local_login_allowed: false } : o))
+          throw new Error(t("idp.localDisabled"))
+        }
         if (response.status === 429) {
           throw new Error(t("login.tooManyAttempts"))
         }
@@ -123,6 +178,16 @@ export function Login({ onLogin }: LoginProps) {
       setLoading(false)
     }
   }
+
+  const startOidcLogin = () => {
+    setError("")
+    setLoading(true)
+    // Full-page navigation: the backend sets its HttpOnly binding cookie and
+    // redirects to the identity provider (Authorization Code + PKCE).
+    window.location.href = getApiUrl("/api/auth/oidc/login")
+  }
+
+  const showLocal = !oidc?.enabled || oidc.local_login_allowed
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -171,7 +236,35 @@ export function Login({ onLogin }: LoginProps) {
           </div>
         </div>
 
-        <div className="bg-card border border-border rounded-lg p-6 shadow-lg">
+        <div className="bg-card border border-border rounded-lg p-6 shadow-lg space-y-4">
+          {oidc?.enabled && !requiresTotp && (
+            <>
+              {error && !showLocal && (
+                <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3 flex items-start gap-2">
+                  <AlertCircle className="h-5 w-5 text-red-500 flex-shrink-0 mt-0.5" />
+                  <p className="text-sm text-red-500">{error}</p>
+                </div>
+              )}
+              <Button
+                type="button"
+                onClick={startOidcLogin}
+                disabled={loading}
+                className="w-full bg-blue-500 hover:bg-blue-600"
+              >
+                {loading ? t("idp.signingInIdp") : t("idp.signInWith", { provider: oidc.provider_name })}
+              </Button>
+              {showLocal ? (
+                <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                  <div className="h-px flex-1 bg-border" />
+                  {t("idp.or")}
+                  <div className="h-px flex-1 bg-border" />
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground text-center">{t("idp.localDisabled")}</p>
+              )}
+            </>
+          )}
+          {showLocal && (
           <form onSubmit={handleLogin} className="space-y-4">
             {error && (
               <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3 flex items-start gap-2">
@@ -299,6 +392,7 @@ export function Login({ onLogin }: LoginProps) {
               {loading ? t("login.signingIn") : requiresTotp ? t("login.verifyCode") : t("login.signIn")}
             </Button>
           </form>
+          )}
         </div>
 
         <p className="text-center text-sm text-muted-foreground">{`ProxMenux Monitor v${APP_VERSION}`}</p>

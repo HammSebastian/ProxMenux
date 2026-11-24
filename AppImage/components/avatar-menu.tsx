@@ -165,12 +165,31 @@ export function AvatarMenu({ size = "lg", onOpenSecurity, onOpenProfile }: Avata
   const displayName = profile?.display_name || username
   const initial = displayName.trim().charAt(0).toUpperCase() || "U"
 
-  const handleSignOut = () => {
+  const handleSignOut = async () => {
+    // Revoke the server-side session and, for identity-provider sessions,
+    // end the session at the provider too (central logout).
+    let logoutUrl: string | null = null
+    try {
+      const token = localStorage.getItem("proxmenux-auth-token")
+      if (token) {
+        const r = await fetch(getApiUrl("/api/auth/oidc/logout"), {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        if (r.ok) logoutUrl = (await r.json()).logout_url || null
+      }
+    } catch {
+      // offline / older backend: fall through to the local sign-out
+    }
     try {
       localStorage.removeItem("proxmenux-auth-token")
       localStorage.removeItem("proxmenux-auth-setup-complete")
     } catch {
       // localStorage may be unavailable (private mode); fall through.
+    }
+    if (logoutUrl) {
+      window.location.href = logoutUrl
+      return
     }
     window.location.reload()
   }
