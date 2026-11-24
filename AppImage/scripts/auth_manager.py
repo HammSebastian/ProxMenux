@@ -330,18 +330,28 @@ def _maybe_rehash_password(password, current_hash):
     return None
 
 
-def generate_token(username):
-    """Generate a JWT token for the given username"""
+def generate_token(username, scope=None, expires_in=None, extra_claims=None):
+    """Generate a JWT token for the given username.
+
+    `scope` / `extra_claims` are used by the OIDC login (role scope, `src`,
+    `sid`). Without them the token is identical to the historic local-login
+    token (no scope claim == full_admin), so existing behaviour is unchanged.
+    """
     if not JWT_AVAILABLE:
         return None
 
+    lifetime = timedelta(seconds=expires_in) if expires_in else timedelta(hours=TOKEN_EXPIRATION_HOURS)
     payload = {
         'username': username,
-        'exp': datetime.utcnow() + timedelta(hours=TOKEN_EXPIRATION_HOURS),
+        'exp': datetime.utcnow() + lifetime,
         'iat': datetime.utcnow(),
         'iss': JWT_ISSUER,
         'aud': JWT_AUDIENCE,
     }
+    if scope:
+        payload['scope'] = scope
+    if extra_claims:
+        payload.update(extra_claims)
 
     try:
         token = jwt.encode(payload, _get_jwt_secret(), algorithm=JWT_ALGORITHM)
@@ -409,6 +419,16 @@ def verify_token_full(token):
             )
         except (jwt.MissingRequiredClaimError, jwt.InvalidAudienceError, jwt.InvalidIssuerError):
             payload = jwt.decode(token, _get_jwt_secret(), algorithms=[JWT_ALGORITHM])
+        if payload.get('src') == 'oidc':
+            # OIDC sessions are never trusted from the token alone: the live
+            # scope comes from the server-side session/user record, so a
+            # logout, a disabled user or a role change applies immediately.
+            import oidc_manager
+            live_scope = oidc_manager.validate_session(payload.get('sid'))
+            if not live_scope:
+                _log_auth_failure_throttled("Session rejected: oidc session invalid")
+                return None, None
+            return payload.get('username'), live_scope
         return payload.get('username'), payload.get('scope', 'full_admin')
     except jwt.ExpiredSignatureError:
         _log_auth_failure_throttled("Session rejected: expired")
@@ -485,6 +505,11 @@ def verify_token(token):
             )
         except (jwt.MissingRequiredClaimError, jwt.InvalidAudienceError, jwt.InvalidIssuerError):
             payload = jwt.decode(token, _get_jwt_secret(), algorithms=[JWT_ALGORITHM])
+        if payload.get('src') == 'oidc':
+            import oidc_manager
+            if not oidc_manager.validate_session(payload.get('sid')):
+                _log_auth_failure_throttled("Session rejected: oidc session invalid")
+                return None
         return payload.get('username')
     except jwt.ExpiredSignatureError:
         _log_auth_failure_throttled("Token has expired")
@@ -492,6 +517,23 @@ def verify_token(token):
     except jwt.InvalidTokenError as e:
         _log_auth_failure_throttled(f"Invalid token: {e}")
         return None
+
+
+def get_session_info(token):
+    """Return {"username","scope","src","sid"} for a valid session token,
+    else None. `src` is "oidc" for identity-provider sessions and "local"
+    for everything else (password login, legacy and API tokens)."""
+    username, scope = verify_token_full(token)
+    if not username:
+        return None
+    src, sid = "local", None
+    try:
+        claims = jwt.decode(token, options={"verify_signature": False})  # already verified above
+        if claims.get("src") == "oidc":
+            src, sid = "oidc", claims.get("sid")
+    except Exception:
+        pass
+    return {"username": username, "scope": scope, "src": src, "sid": sid}
 
 
 def _jwt_secret_fingerprint(secret: str = None) -> str:
@@ -1445,7 +1487,16 @@ def authenticate(username, password, totp_token=None):
     
     if not config.get("enabled"):
         return False, None, False, "Authentication is not enabled"
-    
+
+    # OIDC "Allow Local Login" switch. Enforced here (not only in the route)
+    # so every password-based path - login AND API-token generation - obeys it.
+    try:
+        import oidc_manager
+        if not oidc_manager.local_login_allowed():
+            return False, None, False, "Local login is disabled"
+    except ImportError:
+        pass
+
     if username != config.get("username"):
         return False, None, False, "Invalid username or password"
     

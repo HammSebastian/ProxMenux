@@ -16,6 +16,7 @@ import { getApiUrl, fetchApi } from "../lib/api-config"
 import { TwoFactorSetup } from "./two-factor-setup"
 import { ScriptTerminalModal } from "./script-terminal-modal"
 import { SecureGatewaySetup } from "./secure-gateway-setup"
+import { IdentityProviderSettings } from "./identity-provider-settings"
 import { useI18n } from "../lib/i18n/provider"
 
 interface ApiTokenEntry {
@@ -2186,6 +2187,9 @@ ${(report.sections && report.sections.length > 0) ? `
           )}
         </CardContent>
       </Card>
+
+      {/* Identity Provider (OIDC / Authentik) */}
+      <IdentityProviderSettings />
 
       {/* SSL/HTTPS Configuration */}
       <Card>

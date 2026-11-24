@@ -130,6 +130,11 @@ cp "$SCRIPT_DIR/zram_metrics.py" "$APP_DIR/usr/bin/"
 cp "$SCRIPT_DIR/flask_auth_routes.py" "$APP_DIR/usr/bin/" 2>/dev/null || echo "⚠️  flask_auth_routes.py not found"
 cp "$SCRIPT_DIR/auth_manager.py" "$APP_DIR/usr/bin/" 2>/dev/null || echo "⚠️  auth_manager.py not found"
 cp "$SCRIPT_DIR/jwt_middleware.py" "$APP_DIR/usr/bin/" 2>/dev/null || echo "⚠️  jwt_middleware.py not found"
+# OIDC (Authentik) modules: imported unconditionally by flask_server.py, so a
+# missing file must fail the build rather than the service at runtime.
+cp "$SCRIPT_DIR/rbac.py" "$APP_DIR/usr/bin/"
+cp "$SCRIPT_DIR/oidc_manager.py" "$APP_DIR/usr/bin/"
+cp "$SCRIPT_DIR/flask_oidc_routes.py" "$APP_DIR/usr/bin/"
 cp "$SCRIPT_DIR/health_monitor.py" "$APP_DIR/usr/bin/" 2>/dev/null || echo "⚠️  health_monitor.py not found"
 cp "$SCRIPT_DIR/health_persistence.py" "$APP_DIR/usr/bin/" 2>/dev/null || echo "⚠️  health_persistence.py not found"
 cp "$SCRIPT_DIR/flask_health_routes.py" "$APP_DIR/usr/bin/" 2>/dev/null || echo "⚠️  flask_health_routes.py not found"
@@ -382,6 +387,15 @@ pip3 install --target "$APP_DIR/usr/lib/python3/dist-packages" --upgrade \
 # The two --platform values allow gevent's manylinux_2_28 wheels and the
 # backwards-compatible manylinux2014 zope.interface wheels to be resolved in
 # one deterministic installation.
+# OIDC (Authentik) support: PyJWT needs `cryptography` to verify RS256/ES256
+# ID-token signatures and to encrypt the stored client secret.  The wheel is
+# abi3 but depends on the CPython-specific `cffi`, so it lives in the
+# per-ABI vendor tree.  When it is absent the OIDC feature reports itself as
+# unavailable and the local login keeps working unchanged.
+CRYPTOGRAPHY_VERSION="${CRYPTOGRAPHY_VERSION:-50.0.2}"
+CFFI_VERSION="${CFFI_VERSION:-2.1.1}"
+PYCPARSER_VERSION="${PYCPARSER_VERSION:-2.22}"
+
 install_gevent_runtime() {
     local python_version="$1"
     local abi="$2"
@@ -406,7 +420,10 @@ install_gevent_runtime() {
         "zope.interface==${ZOPE_INTERFACE_VERSION}" \
         "zope.event==${ZOPE_EVENT_VERSION}" \
         "gevent-websocket==${GEVENT_WEBSOCKET_VERSION}" \
-        "Pillow==12.3.0"
+        "Pillow==12.3.0" \
+        "cryptography==${CRYPTOGRAPHY_VERSION}" \
+        "cffi==${CFFI_VERSION}" \
+        "pycparser==${PYCPARSER_VERSION}"
 }
 
 install_gevent_runtime "3.11" "cp311"
@@ -420,12 +437,17 @@ for abi in cp311 cp313; do
         "gevent/_gevent_c_hub_local.cpython-${abi_digits}-*.so" \
         "greenlet/_greenlet.cpython-${abi_digits}-*.so" \
         "zope/interface/_zope_interface_coptimizations.cpython-${abi_digits}-*.so" \
-        "PIL/_imaging.cpython-${abi_digits}-*.so"; do
+        "PIL/_imaging.cpython-${abi_digits}-*.so" \
+        "_cffi_backend.cpython-${abi_digits}-*.so"; do
         if ! compgen -G "$abi_dir/$extension" >/dev/null; then
             echo "❌ Missing ${abi} extension: ${extension}" >&2
             exit 1
         fi
     done
+    if [ ! -d "$abi_dir/cryptography/hazmat" ]; then
+        echo "❌ Missing cryptography runtime for ${abi}" >&2
+        exit 1
+    fi
     if [ ! -f "$abi_dir/geventwebsocket/__init__.py" ]; then
         echo "❌ Missing gevent-websocket runtime for ${abi}" >&2
         exit 1

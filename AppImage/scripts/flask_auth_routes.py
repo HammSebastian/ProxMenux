@@ -12,7 +12,8 @@ import time
 from collections import defaultdict, deque
 from flask import Blueprint, jsonify, request
 import auth_manager
-from jwt_middleware import require_auth, require_admin_scope
+from jwt_middleware import require_auth, require_admin_scope, require_local_session
+import oidc_manager
 import jwt
 import datetime
 
@@ -99,6 +100,22 @@ def _get_client_ip():
 
 auth_bp = Blueprint('auth', __name__)
 
+
+def _local_admin_session():
+    """Resolve the caller's session for endpoints that act on the LOCAL
+    account. Returns (username, None) or (None, (response, status))."""
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    info = auth_manager.get_session_info(token) if token else None
+    if not info:
+        return None, (jsonify({"success": False, "message": "Unauthorized"}), 401)
+    if info["src"] == "oidc":
+        return None, (jsonify({"success": False,
+                               "message": "This action is only available to the local account"}), 403)
+    if info["scope"] != 'full_admin':
+        return None, (jsonify({"success": False, "message": "This action requires a full_admin token"}), 403)
+    return info["username"], None
+
+
 @auth_bp.route('/api/auth/status', methods=['GET'])
 def auth_status():
     """Get current authentication status"""
@@ -107,10 +124,15 @@ def auth_status():
         
         token = request.headers.get('Authorization', '').replace('Bearer ', '')
         if token:
-            username = auth_manager.verify_token(token)
-            if username:
+            info = auth_manager.get_session_info(token)
+            if info:
                 status['authenticated'] = True
-        
+                status['session'] = {"username": info["username"], "scope": info["scope"],
+                                     "source": info["src"]}
+
+        # Public, secret-free OIDC info for the login page.
+        status['oidc'] = oidc_manager.public_info()
+        status['local_login_allowed'] = status['oidc']['local_login_allowed']
         return jsonify(status)
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 500
@@ -402,6 +424,13 @@ def auth_login():
                 "retry_after": retry_after,
             }), 429
 
+        if not oidc_manager.local_login_allowed():
+            return jsonify({
+                "success": False,
+                "local_login_disabled": True,
+                "message": "Local login is disabled. Sign in with the identity provider.",
+            }), 403
+
         data = request.json
         username = data.get('username')
         password = data.get('password')
@@ -468,7 +497,7 @@ def auth_enable():
 
 
 @auth_bp.route('/api/auth/disable', methods=['POST'])
-@require_admin_scope
+@require_local_session
 def auth_disable():
     """Disable authentication
 
@@ -488,7 +517,7 @@ def auth_disable():
 
 
 @auth_bp.route('/api/auth/change-password', methods=['POST'])
-@require_auth
+@require_local_session
 def auth_change_password():
     """Change authentication password.
 
@@ -559,13 +588,9 @@ def auth_skip():
 def totp_setup():
     """Initialize TOTP setup for a user"""
     try:
-        token = request.headers.get('Authorization', '').replace('Bearer ', '')
-        username, scope = auth_manager.verify_token_full(token)
-        
-        if not username:
-            return jsonify({"success": False, "message": "Unauthorized"}), 401
-        if scope != 'full_admin':
-            return jsonify({"success": False, "message": "This action requires a full_admin token"}), 403
+        username, denied = _local_admin_session()
+        if denied:
+            return denied
         
         success, secret, qr_code, backup_codes, message = auth_manager.setup_totp(username)
         
@@ -587,13 +612,9 @@ def totp_setup():
 def totp_enable():
     """Enable TOTP after verification"""
     try:
-        token = request.headers.get('Authorization', '').replace('Bearer ', '')
-        username, scope = auth_manager.verify_token_full(token)
-        
-        if not username:
-            return jsonify({"success": False, "message": "Unauthorized"}), 401
-        if scope != 'full_admin':
-            return jsonify({"success": False, "message": "This action requires a full_admin token"}), 403
+        username, denied = _local_admin_session()
+        if denied:
+            return denied
         
         data = request.json
         verification_token = data.get('token')
@@ -615,13 +636,9 @@ def totp_enable():
 def totp_disable():
     """Disable TOTP (requires password confirmation)"""
     try:
-        token = request.headers.get('Authorization', '').replace('Bearer ', '')
-        username, scope = auth_manager.verify_token_full(token)
-        
-        if not username:
-            return jsonify({"success": False, "message": "Unauthorized"}), 401
-        if scope != 'full_admin':
-            return jsonify({"success": False, "message": "This action requires a full_admin token"}), 403
+        username, denied = _local_admin_session()
+        if denied:
+            return denied
         
         data = request.json or {}
         password = data.get('password')
@@ -659,12 +676,9 @@ def generate_api_token():
         if not token:
             return jsonify({"success": False, "message": "Unauthorized. Please log in first."}), 401
         
-        username, scope = auth_manager.verify_token_full(token)
-        
-        if not username:
-            return jsonify({"success": False, "message": "Invalid or expired session. Please log in again."}), 401
-        if scope != 'full_admin':
-            return jsonify({"success": False, "message": "This action requires a full_admin token"}), 403
+        username, denied = _local_admin_session()
+        if denied:
+            return denied
         
         data = request.json
         password = data.get('password')
@@ -795,6 +809,16 @@ def get_profile():
     """Return the active user's profile (username + display name + avatar
     metadata). Falls back to None values when auth isn't configured."""
     try:
+        parts = request.headers.get('Authorization', '').split()
+        info = auth_manager.get_session_info(parts[1]) if len(parts) == 2 else None
+        if info and info["src"] == "oidc":
+            u = oidc_manager.get_session_user(info["sid"]) or {}
+            return jsonify({
+                "success": True, "username": info["username"],
+                "display_name": u.get("display_name") or u.get("username"),
+                "email": u.get("email"), "role": u.get("role"), "source": "oidc",
+                "has_avatar": False, "avatar_mtime": None, "avatar_content_type": None,
+            })
         profile = auth_manager.get_user_profile()
         return jsonify({
             "success": True,
@@ -805,7 +829,7 @@ def get_profile():
 
 
 @auth_bp.route('/api/auth/profile', methods=['PUT'])
-@require_auth
+@require_local_session
 def update_profile():
     """Update display_name. Body: {"display_name": "..."}. Empty string
     clears it (the dropdown then renders the raw username)."""
@@ -833,6 +857,10 @@ def get_avatar():
     try:
         from flask import Response
         data, content_type = auth_manager.get_avatar_bytes()
+        parts = request.headers.get('Authorization', '').split()
+        info = auth_manager.get_session_info(parts[1]) if len(parts) == 2 else None
+        if info and info["src"] == "oidc":
+            data = None  # the local account's avatar is not an OIDC user's
         if data is None:
             return jsonify({"success": False, "message": "No avatar set"}), 404
         return Response(
@@ -850,7 +878,7 @@ def get_avatar():
 
 
 @auth_bp.route('/api/auth/profile/avatar', methods=['POST'])
-@require_auth
+@require_local_session
 def upload_avatar():
     """Upload a new avatar image. Accepts either:
       • multipart/form-data with a `file` field (preferred), or
@@ -886,7 +914,7 @@ def upload_avatar():
 
 
 @auth_bp.route('/api/auth/profile/avatar', methods=['DELETE'])
-@require_auth
+@require_local_session
 def remove_avatar():
     """Remove the stored avatar (no-op if none set)."""
     try:
