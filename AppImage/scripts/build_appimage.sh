@@ -394,7 +394,7 @@ pip3 install --target "$APP_DIR/usr/lib/python3/dist-packages" --upgrade \
 # unavailable and the local login keeps working unchanged.
 CRYPTOGRAPHY_VERSION="${CRYPTOGRAPHY_VERSION:-50.0.2}"
 CFFI_VERSION="${CFFI_VERSION:-2.1.1}"
-PYCPARSER_VERSION="${PYCPARSER_VERSION:-3.12}"
+PYCPARSER_VERSION="${PYCPARSER_VERSION:-2.22}"
 
 install_gevent_runtime() {
     local python_version="$1"
