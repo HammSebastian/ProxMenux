@@ -357,6 +357,17 @@ class DiscoveryTests(ClusterBase):
         cm.discover(force=True)
         self.assertIn("pve-3", {n["name"] for n in cm.list_nodes()})
 
+    def test_missing_token_never_shows_a_reachable_node_as_offline(self):
+        self.start_all()
+        self.configure(token=False, token_secret_enc="")
+        cm.discover(force=True)
+        for _ in range(cm.BREAKER_THRESHOLD + 2):
+            with self.assertRaises(cm.NodeApiError) as ctx:
+                cm.node_call("pve-1", "GET", "/version")
+            self.assertEqual(ctx.exception.code, "not_configured")
+        node = next(n for n in cm.list_nodes() if n["name"] == "pve-1")
+        self.assertEqual((node["status"], node["api_status"]), ("degraded", "not_configured"))
+
     def test_offline_node_is_marked_and_not_probed(self):
         self.start_all()
         self.pvesh.nodes[2] = ("pve-2", 3, "127.0.0.3", 0, 0)

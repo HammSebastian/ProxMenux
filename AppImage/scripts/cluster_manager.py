@@ -763,7 +763,10 @@ def node_call(name, method, path, params=None, ttl=0, cache_key=None, allow_stal
             raise NodeApiError("offline", "node is not a quorum member")
         data = _raw_call(rec, method, path, params, cfg)
     except NodeApiError as exc:
-        if not rec["local"] and exc.detail != "circuit open":
+        # Only connectivity failures trip the breaker: a missing/rejected token
+        # or certificate must keep its own error instead of becoming "offline".
+        if (not rec["local"] and exc.detail != "circuit open"
+                and exc.code in ("offline", "timeout", "error")):
             _breaker_record(name, False)
         _set_api_state(name, exc.code)
         hit = _cache.get(key) if cacheable else None
