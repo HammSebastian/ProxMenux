@@ -1,7 +1,7 @@
 "use client"
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react"
-import useSWR from "swr"
+import useSWR, { SWRConfig } from "swr"
 import { Badge } from "./ui/badge"
 import { Button } from "./ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs"
@@ -26,6 +26,9 @@ import { ReleaseNotesModal, useVersionCheck } from "./release-notes-modal"
 import { getApiUrl, fetchApi } from "../lib/api-config"
 import { TerminalPanel } from "./terminal-panel"
 import { AvatarMenu } from "./avatar-menu"
+import { NodeProvider, useNode } from "../lib/node-context"
+import { NodeSelector } from "./node-selector"
+import { NodeStatusBanner, RemoteGate } from "./node-status-banner"
 import {
   RefreshCw,
   AlertTriangle,
@@ -105,7 +108,11 @@ export function ProxmoxDashboard() {
   const { data, error } = useSWR<{ product: string }>("/api/platform", url => fetchApi<{ product: string }>(url), { revalidateOnFocus: false })
   if (!data && !error) return <p role="status" className="p-8">{t("app.loading")}</p>
   if (data?.product === "pbs") return <PBSDashboard />
-  return <PVEDashboard />
+  return (
+    <NodeProvider>
+      <PVEDashboard />
+    </NodeProvider>
+  )
 }
 
 function PVEDashboard() {
@@ -126,6 +133,7 @@ const PBS_TABS: TopTab[] = ["overview", "datastores", "pbs-tasks", "terminal", "
 function MonitorDashboard({ product }: { product: Product }) {
   const t = useT()
   const isPbs = product === "pbs"
+  const { selected: selectedNode, isRemote } = useNode()
   useSWR(isPbs ? null : "/api/apps/custom-links", _dashboardPrefetchFetcher, { revalidateOnFocus: false })
   useSWR(isPbs ? null : "/api/apps/categories",   _dashboardPrefetchFetcher, { revalidateOnFocus: false })
   const { order: userTabOrder } = useTabOrder()
@@ -137,6 +145,8 @@ function MonitorDashboard({ product }: { product: Product }) {
     serverName: "Loading...",
     nodeId: "Loading...",
   })
+  const isRemoteRef = useRef(false)
+  isRemoteRef.current = isRemote
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [isServerConnected, setIsServerConnected] = useState(true)
   const [componentKey, setComponentKey] = useState(0)
@@ -262,6 +272,13 @@ function MonitorDashboard({ product }: { product: Product }) {
     } catch (error) {
       // Expected to fail in v0 preview (no Flask server)
 
+      // A failing OTHER node (offline, TLS/token problem, no rights) is not a
+      // lost connection to ProxMenux itself: the node banner explains it.
+      const status = (error as { status?: number })?.status
+      if (isRemoteRef.current && status && [403, 404, 501, 502, 503, 504].includes(status)) {
+        setSystemStatus((prev) => ({ ...prev, uptime: t("app.notAvailable"), lastUpdate: new Date().toLocaleTimeString("en-US", { hour12: false }) }))
+        return
+      }
       setIsServerConnected(false)
       setSystemStatus((prev) => ({
         ...prev,
@@ -274,6 +291,19 @@ function MonitorDashboard({ product }: { product: Product }) {
     }
   }, [t])
 
+  // Switching node refetches the header data right away (the tab contents
+  // remount through the keyed SWRConfig below).
+  const firstNodeRender = useRef(true)
+  useEffect(() => {
+    if (firstNodeRender.current) {
+      firstNodeRender.current = false
+      return
+    }
+    setSystemStatus((prev) => ({ ...prev, uptime: "Loading...", serverName: "Loading..." }))
+    void fetchSystemData()
+    void fetchHealthInfoCount()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedNode])
   useEffect(() => {
   // Siempre fetch inicial
   fetchSystemData()
@@ -528,6 +558,7 @@ function MonitorDashboard({ product }: { product: Product }) {
 
             {/* Desktop Actions */}
             <div className="hidden lg:flex items-center space-x-4">
+              {!isPbs && <NodeSelector />}
               <MonitorSwitcher nodeName={displayServerName} />
 
               <div className="flex items-center gap-2">
@@ -629,10 +660,13 @@ function MonitorDashboard({ product }: { product: Product }) {
                 </Badge>
               )}
             </div>
+            {!isPbs && <NodeSelector compact />}
             <MonitorSwitcher nodeName={displayServerName} compact />
           </div>
         </div>
       </header>
+
+      {!isPbs && <NodeStatusBanner />}
 
       <div
         className={`sticky z-40 bg-background
@@ -852,6 +886,7 @@ function MonitorDashboard({ product }: { product: Product }) {
             page content further from the nav than on Overview.
             Vertical spacing INSIDE each tab lives on its own
             TabsContent's `space-y-*`. */}
+        <SWRConfig key={isRemote ? `node-${selectedNode}` : "node-local"} value={{ provider: () => new Map() }}>
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-0">
           {/* forceMount so SystemOverview mounts at dashboard load and
               never gets torn down when the user visits another tab.
@@ -879,15 +914,15 @@ function MonitorDashboard({ product }: { product: Product }) {
 
           {!isPbs && <>
           <TabsContent value="apps" className="space-y-4 md:space-y-6 mt-0">
-            <AppsDashboard key={`apps-${componentKey}`} />
+            <RemoteGate><AppsDashboard key={`apps-${componentKey}`} /></RemoteGate>
           </TabsContent>
 
           <TabsContent value="storage" className="space-y-4 md:space-y-6 mt-0">
-            <StorageOverview key={`storage-${componentKey}`} />
+            <RemoteGate><StorageOverview key={`storage-${componentKey}`} /></RemoteGate>
           </TabsContent>
 
           <TabsContent value="network" className="space-y-4 md:space-y-6 mt-0">
-            <NetworkMetrics key={`network-${componentKey}`} />
+            <RemoteGate><NetworkMetrics key={`network-${componentKey}`} /></RemoteGate>
           </TabsContent>
 
           {/* forceMount so the modal-data prefetcher (inside VirtualMachines)
@@ -901,30 +936,30 @@ function MonitorDashboard({ product }: { product: Product }) {
           </TabsContent>
 
           <TabsContent value="hardware" className="space-y-4 md:space-y-6 mt-0">
-            <Hardware key={`hardware-${componentKey}`} />
+            <RemoteGate><Hardware key={`hardware-${componentKey}`} /></RemoteGate>
           </TabsContent>
           </>}
 
           <TabsContent value="logs" className="space-y-4 md:space-y-6 mt-0">
-            <SystemLogs key={`logs-${componentKey}`} />
+            <RemoteGate><SystemLogs key={`logs-${componentKey}`} /></RemoteGate>
           </TabsContent>
 
           {!isPbs && <>
           <TabsContent value="audit" className="space-y-4 md:space-y-6 mt-0">
-            <AuditReport key={`audit-${componentKey}`} />
+            <RemoteGate><AuditReport key={`audit-${componentKey}`} /></RemoteGate>
           </TabsContent>
 
           <TabsContent value="backup" className="space-y-4 md:space-y-6 mt-0">
-            <BackupTab key={`backup-${componentKey}`} />
+            <RemoteGate><BackupTab key={`backup-${componentKey}`} /></RemoteGate>
           </TabsContent>
           </>}
 
           <TabsContent value="terminal" className="mt-0">
-            <TerminalPanel key={`terminal-${componentKey}`} />
+            <RemoteGate><TerminalPanel key={`terminal-${componentKey}`} /></RemoteGate>
           </TabsContent>
 
           <TabsContent value="security" className="space-y-4 md:space-y-6 mt-0">
-            <Security key={`security-${componentKey}`} hostType={product} />
+            <RemoteGate><Security key={`security-${componentKey}`} hostType={product} /></RemoteGate>
           </TabsContent>
 
           {/* Profile tab — not surfaced in the top tabs nav. The only
@@ -945,6 +980,7 @@ function MonitorDashboard({ product }: { product: Product }) {
             <About />
           </TabsContent>
         </Tabs>
+        </SWRConfig>
 
         <footer className="mt-8 md:mt-12 pt-4 md:pt-6 border-t border-border text-center text-xs md:text-sm text-muted-foreground">
           <p className="font-medium mb-2">ProxMenux Monitor v{APP_VERSION}</p>

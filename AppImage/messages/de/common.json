@@ -8056,5 +8056,116 @@
       "busy": "Zu viele Anmeldungen gleichzeitig. Bitte kurz warten.",
       "internal": "Anmeldung fehlgeschlagen."
     }
+  },
+  "cluster": {
+    "selector": {
+      "label": "Node auswählen",
+      "thisNode": "dieser Node"
+    },
+    "status": {
+      "title": "Cluster-Status",
+      "name": "Cluster",
+      "standalone": "Einzelner Host",
+      "quorum": "Quorum",
+      "quorate": "Quorum vorhanden",
+      "noQuorum": "Kein Quorum",
+      "nodes": "Nodes",
+      "online": "online",
+      "offline": "offline",
+      "degraded": "API-Problem"
+    },
+    "nodeOffline": "Node offline – Daten derzeit nicht verfügbar",
+    "nodeDegraded": "Die API von Node {node} ist derzeit nicht nutzbar.",
+    "unsupported": {
+      "title": "Diese Funktion ist für Node {node} noch nicht verfügbar.",
+      "body": "Dieser Bereich liest Daten direkt vom Host, auf dem er läuft. Übersicht, VMs/Container und Einstellungen funktionieren für jeden Node; wechsle zum lokalen Node, um diesen Bereich zu nutzen.",
+      "switchLocal": "Zu {node} wechseln"
+    },
+    "vmList": {
+      "node": "Node",
+      "nodeFilter": "Nach Node filtern",
+      "allNodes": "Alle Nodes",
+      "staleHint": "Letzter bekannter Zustand – der Node hat nicht geantwortet"
+    },
+    "settings": {
+      "title": "Cluster-Verwaltung",
+      "description": "Verwalte alle Nodes des Proxmox-Clusters über diese eine ProxMenux-Instanz. Andere Nodes werden über die Proxmox-API mit einem Token mit minimalen Rechten angesprochen; auf ihnen wird nichts installiert.",
+      "saved": "Cluster-Einstellungen gespeichert.",
+      "saveFailed": "Die Cluster-Einstellungen konnten nicht gespeichert werden.",
+      "save": "Cluster-Einstellungen speichern"
+    },
+    "discovery": {
+      "title": "Node-Erkennung",
+      "done": "Erkennung abgeschlossen.",
+      "failed": "Erkennung fehlgeschlagen.",
+      "lastSync": "Letzte Synchronisierung",
+      "status": "Erkennung",
+      "running": "läuft",
+      "active": "automatisch",
+      "disabled": "deaktiviert",
+      "lastError": "Letzter Fehler",
+      "now": "Nodes jetzt erkennen"
+    },
+    "test": {
+      "all": "Alle Verbindungen testen",
+      "one": "Testen",
+      "failed": "Der Verbindungstest ist fehlgeschlagen.",
+      "canControl": "Token darf Gäste steuern (VM.PowerMgmt).",
+      "readOnly": "Token ist nur lesend.",
+      "steps": {
+        "address": "Interne Adresse",
+        "tls_and_token": "TLS-Zertifikat und API-Token",
+        "privileges": "Leserechte",
+        "required_privileges": "Benötigte Rechte (Sys.Audit, VM.Audit)",
+        "local_api": "Lokale Proxmox-API",
+        "membership": "Cluster-Mitgliedschaft"
+      }
+    },
+    "nodes": {
+      "title": "Nodes",
+      "name": "Node",
+      "address": "Interne Adresse",
+      "version": "PVE-Version",
+      "state": "Status",
+      "api": "API",
+      "apiOk": "erreichbar"
+    },
+    "connection": {
+      "title": "Verbindung",
+      "enabled": "Multi-Node-Verwaltung aktivieren",
+      "autoDiscovery": "Nodes automatisch erkennen",
+      "interval": "Erkennungsintervall (Sekunden)",
+      "port": "API-Port",
+      "tokenId": "API-Token-ID",
+      "tokenSecret": "API-Token-Secret",
+      "secretKept": "•••••••• (gespeichert, leer lassen zum Behalten)",
+      "tlsMode": "TLS-Prüfung",
+      "tls": {
+        "ca": "Cluster-CA (empfohlen)",
+        "fingerprint": "Fester Zertifikats-Fingerprint",
+        "system": "System-Zertifikatsspeicher"
+      },
+      "caFile": "CA-Datei",
+      "fingerprints": "SHA-256-Fingerprint je Node",
+      "fingerprintHint": "Zu finden in der Proxmox-Oberfläche unter Node → System → Zertifikate. Ohne Fingerprint wird ein Node nicht kontaktiert.",
+      "remoteControl": "Energiesteuerung von Gästen auf anderen Nodes erlauben",
+      "remoteControlHint": "Benötigt VM.PowerMgmt am Token. Aus: andere Nodes sind nur lesbar."
+    },
+    "permissions": {
+      "title": "Node-Berechtigungen",
+      "description": "Administratoren (proxmenux-admins) dürfen alle Nodes nutzen. Lege fest, welche Nodes die anderen Gruppen nutzen dürfen; eine Einstellung pro Benutzer überschreibt die Gruppe, Verweigern gewinnt immer.",
+      "role": {
+        "user": "Gruppe proxmenux-users",
+        "readonly": "Gruppe proxmenux-readonly"
+      },
+      "adminNote": "Pro Benutzer: erben = Gruppenregel gilt, erlauben = zusätzlich erlaubt, verweigern = nie.",
+      "user": "Benutzer",
+      "inherit": "erben",
+      "allow": "erlauben",
+      "deny": "verweigern"
+    },
+    "audit": {
+      "title": "Letzte Cluster-Ereignisse"
+    }
   }
 }

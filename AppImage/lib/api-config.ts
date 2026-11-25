@@ -9,6 +9,89 @@ async function apiFailure(...args: Parameters<typeof import("./api-errors").apiF
   return messages.apiFailure(...args)
 }
 
+// ---------------------------------------------------------------------------
+// Multi-node selection. Lives in this module on purpose: the transport must
+// stay free of imports (see tests/test_api_import_boundaries.cjs).
+//
+// The browser only sends the node NAME; the backend resolves it against its
+// own registry and authorises it on every request - nothing here is trusted.
+// ---------------------------------------------------------------------------
+
+export const NODE_STORAGE_KEY = "proxmenux-selected-node"
+export const NODE_HEADER = "X-ProxMenux-Node"
+export const NODE_CHANGED_EVENT = "proxmenux-node-changed"
+
+// Instance-level endpoints (they configure ProxMenux itself): never node-routed.
+// Keep in sync with GLOBAL_PREFIXES in AppImage/scripts/cluster_gateway.py.
+const GLOBAL_PREFIXES = [
+  "/api/auth/",
+  "/api/cluster/",
+  "/api/notifications/",
+  "/api/proxmenux/",
+  "/api/platform",
+  "/api/monitor-links",
+  "/api/apps/",
+  "/api/updates/",
+  "/api/lxc-updates/",
+  "/api/health/settings",
+  "/api/health/thresholds",
+  "/api/health/disk-exclusions",
+  "/api/health/storage-exclusions",
+  "/api/health/interface-exclusions",
+  "/api/health/dismissed",
+  "/api/health/acknowledge",
+  "/api/health/un-acknowledge",
+  "/api/health/disks",
+  "/api/health/interfaces",
+  "/api/health/remote-storages",
+]
+
+const NODE_NAME = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/
+const GUEST_PATH = /^\/api\/(?:vms|lxc)\/(\d+)(?:[/?]|$)/
+
+// vmid -> hosting node, filled by the guest list. Guest requests are routed to
+// the node that really hosts the guest, whatever node is selected.
+const guestNodes = new Map<number, string>()
+
+export function getSelectedNode(): string | null {
+  if (typeof window === "undefined") return null
+  try {
+    const v = window.localStorage.getItem(NODE_STORAGE_KEY)
+    return v && NODE_NAME.test(v) ? v : null
+  } catch {
+    return null
+  }
+}
+
+export function storeSelectedNode(name: string | null): void {
+  if (typeof window === "undefined") return
+  try {
+    if (name) window.localStorage.setItem(NODE_STORAGE_KEY, name)
+    else window.localStorage.removeItem(NODE_STORAGE_KEY)
+  } catch {
+    // private mode: selection only lives in React state
+  }
+  window.dispatchEvent(new CustomEvent(NODE_CHANGED_EVENT, { detail: name }))
+}
+
+export function registerGuestNodes(guests: Array<{ vmid: number; node?: string }>): void {
+  for (const g of guests) {
+    if (g.node && NODE_NAME.test(g.node)) guestNodes.set(Number(g.vmid), g.node)
+  }
+}
+
+export function isGlobalEndpoint(endpoint: string): boolean {
+  return GLOBAL_PREFIXES.some((p) => endpoint.startsWith(p))
+}
+
+/** Node header for one request, or {} when it must not be node-routed. */
+export function nodeHeadersFor(endpoint: string): Record<string, string> {
+  if (isGlobalEndpoint(endpoint)) return {}
+  const guest = GUEST_PATH.exec(endpoint)
+  const node = (guest && guestNodes.get(Number(guest[1]))) || getSelectedNode()
+  return node ? { [NODE_HEADER]: node } : {}
+}
+
 /**
  * API Server Port Configuration
  * Default: 8008 (production)
@@ -80,8 +163,11 @@ export async function fetchApi<T>(endpoint: string, options?: RequestInit): Prom
 
   const token = getAuthToken()
 
+  // Multi-node: tell the backend which node this request is for. An explicit
+  // header from the caller wins; instance-level endpoints are never routed.
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
+    ...nodeHeadersFor(endpoint),
     ...(options?.headers as Record<string, string>),
   }
 

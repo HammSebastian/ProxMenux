@@ -20,6 +20,7 @@ import { SUPPORTED_LANGUAGES, useI18n } from "../lib/i18n/provider"
 import { useIsPbs } from "../lib/use-platform"
 import type { LanguageCode } from "../lib/i18n/languages"
 import { NavTabOrderCard } from "./nav-tab-order-card"
+import { ClusterSettings } from "./cluster-settings"
 import { StorageDisplayCard } from "./storage-display-card"
 import { optimizationSourceError, optimizationSourceName, type OptimizationSourceError, type OptimizationSourceResponse } from "../lib/optimization-source-errors"
 
@@ -1151,6 +1152,9 @@ export function Settings() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Multi-node management (administrators only; renders nothing otherwise) */}
+      {!isPbs && <ClusterSettings />}
 
       {/* Navigation Tab Order — user-orderable top-level tabs */}
       {!isPbs && <NavTabOrderCard />}
