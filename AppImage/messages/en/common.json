@@ -7235,5 +7235,116 @@
       "busy": "Too many sign-ins in progress. Try again shortly.",
       "internal": "Sign-in failed."
     }
+  },
+  "cluster": {
+    "selector": {
+      "label": "Select node",
+      "thisNode": "this node"
+    },
+    "status": {
+      "title": "Cluster status",
+      "name": "Cluster",
+      "standalone": "Standalone host",
+      "quorum": "Quorum",
+      "quorate": "Quorate",
+      "noQuorum": "No quorum",
+      "nodes": "Nodes",
+      "online": "online",
+      "offline": "offline",
+      "degraded": "API problem"
+    },
+    "nodeOffline": "Node offline – Daten derzeit nicht verfügbar",
+    "nodeDegraded": "The API of node {node} cannot be used right now.",
+    "unsupported": {
+      "title": "This function is not available for node {node} yet.",
+      "body": "This section reads data directly from the host it runs on. Overview, VMs/containers and Settings work for every node; switch to the local node to use this section.",
+      "switchLocal": "Switch to {node}"
+    },
+    "vmList": {
+      "node": "Node",
+      "nodeFilter": "Filter by node",
+      "allNodes": "All nodes",
+      "staleHint": "Last known state – the node did not answer"
+    },
+    "settings": {
+      "title": "Cluster Management",
+      "description": "Manage all nodes of the Proxmox cluster from this single ProxMenux instance. Other nodes are reached through the Proxmox API with a least-privilege token; nothing is installed on them.",
+      "saved": "Cluster settings saved.",
+      "saveFailed": "Could not save the cluster settings.",
+      "save": "Save cluster settings"
+    },
+    "discovery": {
+      "title": "Node discovery",
+      "done": "Discovery finished.",
+      "failed": "Discovery failed.",
+      "lastSync": "Last synchronisation",
+      "status": "Discovery",
+      "running": "running",
+      "active": "automatic",
+      "disabled": "disabled",
+      "lastError": "Last error",
+      "now": "Discover nodes now"
+    },
+    "test": {
+      "all": "Test all connections",
+      "one": "Test",
+      "failed": "The connection test failed.",
+      "canControl": "Token may control guests (VM.PowerMgmt).",
+      "readOnly": "Token is read-only.",
+      "steps": {
+        "address": "Internal address",
+        "tls_and_token": "TLS certificate and API token",
+        "privileges": "Read permissions",
+        "required_privileges": "Required privileges (Sys.Audit, VM.Audit)",
+        "local_api": "Local Proxmox API",
+        "membership": "Cluster membership"
+      }
+    },
+    "nodes": {
+      "title": "Nodes",
+      "name": "Node",
+      "address": "Internal address",
+      "version": "PVE version",
+      "state": "State",
+      "api": "API",
+      "apiOk": "reachable"
+    },
+    "connection": {
+      "title": "Connection",
+      "enabled": "Enable multi-node management",
+      "autoDiscovery": "Discover nodes automatically",
+      "interval": "Discovery interval (seconds)",
+      "port": "API port",
+      "tokenId": "API token ID",
+      "tokenSecret": "API token secret",
+      "secretKept": "•••••••• (stored, leave empty to keep)",
+      "tlsMode": "TLS verification",
+      "tls": {
+        "ca": "Cluster CA (recommended)",
+        "fingerprint": "Pinned certificate fingerprint",
+        "system": "System trust store"
+      },
+      "caFile": "CA file",
+      "fingerprints": "SHA-256 fingerprint per node",
+      "fingerprintHint": "Shown in the Proxmox GUI under Node → System → Certificates. Without a fingerprint a node is not contacted.",
+      "remoteControl": "Allow power control of guests on other nodes",
+      "remoteControlHint": "Needs VM.PowerMgmt on the token. Off: other nodes are read-only."
+    },
+    "permissions": {
+      "title": "Node permissions",
+      "description": "Administrators (proxmenux-admins) can use all nodes. Choose which nodes the other groups may use; a per-user setting overrides the group, and Deny always wins.",
+      "role": {
+        "user": "Group proxmenux-users",
+        "readonly": "Group proxmenux-readonly"
+      },
+      "adminNote": "Per-user settings: inherit = use the group rule, allow = additionally allow, deny = never.",
+      "user": "User",
+      "inherit": "inherit",
+      "allow": "allow",
+      "deny": "deny"
+    },
+    "audit": {
+      "title": "Recent cluster events"
+    }
   }
 }

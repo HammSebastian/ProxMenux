@@ -408,7 +408,8 @@ def _http_request(method, url, **kwargs):
 def http_get_json(url, headers=None):
     status, data = _http_request("GET", url, headers=headers or {"Accept": "application/json"})
     if status != 200 or not isinstance(data, dict):
-        raise OidcError("idp_error", f"GET {urlparse(url).path} -> HTTP {status}")
+        raise OidcError("idp_error", f"GET {url} -> HTTP {status}"
+                        + (" (check the Issuer URL: for Authentik it is https://<host>/application/o/<slug>/)" if status == 404 else ""))
     return data
 
 

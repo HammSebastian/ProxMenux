@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState, useMemo, useEffect, useRef } from "react"
+import { useState, useMemo, useEffect, useRef, useCallback } from "react"
 import { fetchLxcApps, getLxcAppsCached, invalidateLxcApps, seedLxcAppsCache, setLxcAppsCached, syncLxcAppsState } from "../lib/lxc-apps-cache"
 import { getUpdateActionButtonClass } from "../lib/update-action-style"
 import { parseTags, stringifyTags, tagToColor } from "../lib/pve-tag-color"
@@ -33,6 +33,8 @@ import { AppUpdaterEditor, type AppUpdateMethod } from "./app-updater-editor"
 import { formatStorage } from "../lib/utils"
 import { formatNetworkTraffic, getNetworkUnit } from "../lib/format-network"
 import { fetchApi } from "../lib/api-config"
+import { useNode } from "../lib/node-context"
+import { NODE_HEADER, registerGuestNodes } from "../lib/api-config"
 import { waitForVmControlTask } from "../lib/vm-control"
 import { matchesVmSearch, normalizeVmSearchValue } from "../lib/vm-search"
 import { refreshCheckLxcUpdates, getLxcOsUpdateState, isLxcUpdateStale } from "../lib/lxc-update-observation"
@@ -248,6 +250,10 @@ interface LxcDockerInventory {
 interface VMData {
   vmid: number
   name: string
+  // Multi-node: the node that hosts this guest (column "Node") and whether the
+  // row comes from a cached answer of an unreachable node.
+  node?: string
+  stale?: boolean
   // Compact PVE description included only for list search. The full notes
   // remain in the guest detail modal.
   description?: string
@@ -829,12 +835,30 @@ function MountPointCard({ mp }: { mp: LxcMountPoint }) {
 export function VirtualMachines() {
   const t = useT()
   const { language } = useI18n()
+  const { multiNode, localNode, nodes: clusterNodes } = useNode()
+  // Cluster view: every guest of every node this user may see. The local
+  // node's rows keep their rich local data (IPs, update status, apps); rows of
+  // other nodes come from the cluster API. A failing node never blanks the rest.
+  const clusterFetcher = useCallback(async () => {
+    const [cluster, local] = await Promise.all([
+      fetchApi<{ guests: VMData[] }>("/api/cluster/guests"),
+      localNode
+        ? fetchApi<VMData[]>("/api/vms", { headers: { [NODE_HEADER]: localNode } }).catch(() => [] as VMData[])
+        : Promise.resolve([] as VMData[]),
+    ])
+    const rich = new Map((Array.isArray(local) ? local : []).map((v) => [v.vmid, v]))
+    const rows = cluster.guests.map((g) =>
+      g.node === localNode && rich.has(g.vmid) ? { ...rich.get(g.vmid)!, node: g.node } : g,
+    )
+    registerGuestNodes(rows)
+    return rows
+  }, [localNode])
   const {
     data: vmData,
     error,
     isLoading,
     mutate,
-  } = useSWR<VMData[]>("/api/vms", fetcher, {
+  } = useSWR<VMData[]>(multiNode ? "cluster:/api/vms" : "/api/vms", multiNode ? clusterFetcher : fetcher, {
     refreshInterval: 2500,
     revalidateOnFocus: true,
     revalidateOnReconnect: true,
@@ -1929,7 +1953,10 @@ export function VirtualMachines() {
   }
 
   // Ensure vmData is always an array (backend may return object on error)
-  const safeVMData = Array.isArray(vmData) ? vmData : []
+  const allVMData = Array.isArray(vmData) ? vmData : []
+  // Node filter for the cluster view ("" = all nodes).
+  const [nodeFilter, setNodeFilter] = useState("")
+  const safeVMData = nodeFilter ? allVMData.filter((vm) => vm.node === nodeFilter) : allVMData
 
   // Status filter for the "Virtual Machines & Containers" list. Persisted
   // to localStorage so a reload keeps the operator's last view.
@@ -3366,6 +3393,20 @@ export function VirtualMachines() {
                   </button>
                 )}
               </div>
+               {multiNode && (
+                 <select
+                   value={nodeFilter}
+                   onChange={(e) => setNodeFilter(e.target.value)}
+                   aria-label={t("cluster.vmList.nodeFilter")}
+                   data-testid="vm-node-filter"
+                   className="h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm md:w-auto"
+                 >
+                   <option value="">{t("cluster.vmList.allNodes")}</option>
+                   {clusterNodes.map((n) => (
+                     <option key={n.name} value={n.name}>{n.name}</option>
+                   ))}
+                 </select>
+               )}
                <div
                  role="group"
                  aria-label={t("vmLxc.statusFilter.ariaLabel")}
@@ -3511,6 +3552,11 @@ export function VirtualMachines() {
                         </Badge>
                         <span className="font-semibold text-foreground truncate min-w-0">{vm.name}</span>
                         <span className="text-sm text-muted-foreground whitespace-nowrap flex-shrink-0">ID: {vm.vmid}</span>
+                        {multiNode && vm.node && (
+                          <Badge variant="outline" className="flex-shrink-0 text-xs" data-testid="vm-node-badge" title={vm.stale ? t("cluster.vmList.staleHint") : undefined}>
+                            {t("cluster.vmList.node")}: {vm.node}{vm.stale ? " ⏱" : ""}
+                          </Badge>
+                        )}
                         {/* PVE tag dots — hash-derived colour so the same
                             tag renders identically across the app and
                             matches PVE's own tag palette. Full pills
@@ -3689,7 +3735,7 @@ export function VirtualMachines() {
                         <div className="flex-1 min-w-0">
                           <div className="font-semibold text-foreground truncate">{vm.name}</div>
                           <div className="text-[10px] text-muted-foreground flex items-center gap-1">
-                            <span>ID: {vm.vmid}</span>
+                            <span>ID: {vm.vmid}{multiNode && vm.node ? ` · ${vm.node}` : ""}</span>
                             {parseTags(vm.tags).map((tag) => {
                               const { bg } = tagToColor(tag)
                               return (

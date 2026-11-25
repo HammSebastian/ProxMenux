@@ -135,6 +135,11 @@ cp "$SCRIPT_DIR/jwt_middleware.py" "$APP_DIR/usr/bin/" 2>/dev/null || echo "⚠�
 cp "$SCRIPT_DIR/rbac.py" "$APP_DIR/usr/bin/"
 cp "$SCRIPT_DIR/oidc_manager.py" "$APP_DIR/usr/bin/"
 cp "$SCRIPT_DIR/flask_oidc_routes.py" "$APP_DIR/usr/bin/"
+# Multi-node management modules: imported unconditionally by flask_server.py.
+cp "$SCRIPT_DIR/cluster_manager.py" "$APP_DIR/usr/bin/"
+cp "$SCRIPT_DIR/node_access.py" "$APP_DIR/usr/bin/"
+cp "$SCRIPT_DIR/cluster_gateway.py" "$APP_DIR/usr/bin/"
+cp "$SCRIPT_DIR/flask_cluster_routes.py" "$APP_DIR/usr/bin/"
 cp "$SCRIPT_DIR/health_monitor.py" "$APP_DIR/usr/bin/" 2>/dev/null || echo "⚠️  health_monitor.py not found"
 cp "$SCRIPT_DIR/health_persistence.py" "$APP_DIR/usr/bin/" 2>/dev/null || echo "⚠️  health_persistence.py not found"
 cp "$SCRIPT_DIR/flask_health_routes.py" "$APP_DIR/usr/bin/" 2>/dev/null || echo "⚠️  flask_health_routes.py not found"

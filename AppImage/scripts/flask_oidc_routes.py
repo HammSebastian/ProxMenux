@@ -247,7 +247,8 @@ def put_settings():
         if secret:   # empty string == keep the stored secret
             cfg["client_secret_enc"] = oidc_manager.encrypt_secret(secret)
 
-    cfg["issuer"] = cfg["issuer"].rstrip("/") if cfg["issuer"].endswith("/") else cfg["issuer"]
+    # The issuer is kept byte-for-byte: Authentik publishes it WITH a trailing slash and
+    # the discovery document / ID-token `iss` must match it exactly.
     secret_changed = cfg.get("client_secret_enc") != before.get("client_secret_enc")
     if secret_changed or any(cfg[k] != before[k] for k in _CONNECTION_KEYS):
         cfg["last_status"] = None   # a new target has not been verified yet

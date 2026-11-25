@@ -100,6 +100,7 @@ from flask_notification_routes import notification_bp  # noqa: E402
 from flask_oci_routes import oci_bp  # noqa: E402
 from flask_audit_routes import audit_bp  # noqa: E402
 from flask_vm_backup_routes import vm_backup_bp  # noqa: E402
+import cluster_gateway  # noqa: E402  — multi-node management (cluster_manager, node_access)
 from flask_vm_backup_routes import active_vzdump  # noqa: E402
 from guest_backup_archives import (BackupArchiveError, delete_guest_backups,
                                    guest_backup_deletion_status)  # noqa: E402
@@ -212,6 +213,12 @@ app.register_blueprint(vm_backup_bp)
 
 # Initialize terminal / WebSocket routes
 init_terminal_routes(app)
+
+# Multi-node management: node routing + per-node authorisation hook, cluster
+# routes and the background node discovery. The discovery thread is skipped
+# when the module is imported for tests (PROXMENUX_NO_BACKGROUND=1).
+cluster_gateway.init_app(app, local_node_name_fn=get_proxmox_node_name,
+                         start_discovery=os.environ.get("PROXMENUX_NO_BACKGROUND", "0") != "1")
 
 
 # -------------------------------------------------------------------
