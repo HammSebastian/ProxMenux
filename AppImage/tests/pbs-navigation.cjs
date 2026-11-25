@@ -10,18 +10,21 @@ assert.ok(wrapper, 'platform gate must remain separate from PVE hooks/prewarmers
 const code = ts.transpileModule(ts.createPrinter().printNode(ts.EmitHint.Unspecified, wrapper, tree), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX },
 }).outputText
-const PBS = () => {}, PVE = () => {}
+const PBS = () => {}, PVE = () => {}, NodeProvider = () => {}
 for (const [data, error, expected] of [
   [{ product: 'pbs' }, null, PBS], [{ product: 'pve' }, null, PVE],
   [undefined, new Error('older API'), PVE], [undefined, null, 'p'],
 ]) {
   const sandbox = {
-    exports: {}, PBSDashboard: PBS, PVEDashboard: PVE,
+    exports: {}, PBSDashboard: PBS, PVEDashboard: PVE, NodeProvider,
     useT: () => key => key, useSWR: () => ({ data, error }),
     require: () => ({ jsx: (type, props) => ({ type, props }) }),
   }
   vm.runInNewContext(code, sandbox)
-  assert.equal(sandbox.exports.ProxmoxDashboard().type, expected)
+  let out = sandbox.exports.ProxmoxDashboard()
+  // PVE is wrapped in the NodeProvider context (multi-node selection)
+  if (out.type === NodeProvider) out = out.props.children
+  assert.equal(out.type, expected)
 }
 console.log('PASS: PBS dashboard routing and loading gate do not mount PVE prewarmers')
 
