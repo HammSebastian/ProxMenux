@@ -674,6 +674,11 @@ class SettingsAndSecretTests(OidcTestBase):
         for p in (oidc_manager.config_path(), oidc_manager.key_path(), oidc_manager.db_path()):
             self.assertEqual(stat.S_IMODE(p.stat().st_mode), 0o600, p)
 
+    def test_issuer_trailing_slash_is_preserved(self):
+        h = self.admin_headers()
+        self.client.put("/api/auth/oidc/settings", headers=h, json={"issuer": ISSUER + "/"})
+        self.assertEqual(oidc_manager.load_config()["issuer"], ISSUER + "/")
+
     def test_empty_secret_keeps_stored_secret(self):
         h = self.admin_headers()
         self.client.put("/api/auth/oidc/settings", headers=h, json={"client_secret": "", "provider_name": "Corp SSO"})
