@@ -28,12 +28,12 @@ jobs:
       run: |
         python3 -m pip install flask flask-cors PyJWT cryptography requests pyotp segno flask-sock
         python3 -m unittest tests.test_oidc_integration tests.test_cluster_management
-        node tests/test_cluster_frontend.cjs
 
     - name: Install dependencies and build web app
       working-directory: AppImage
       run: |
         npm install --legacy-peer-deps
+        node ../tests/test_cluster_frontend.cjs
         npm run build
 
     - name: Build AppImage
